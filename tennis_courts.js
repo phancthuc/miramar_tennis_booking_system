@@ -23,88 +23,116 @@ const firebaseConfig = {
 
 
 // Initialize Firebase
-firebase.initializeApp(firebaseConfig);
-
-// Get a reference to the Firestore service
+const app = firebase.initializeApp(firebaseConfig);
 const db = firebase.firestore();
 
-// Now you can perform Firestore operations using `db`
-// db.collection("testCollection").add({
-//     testField: "testValue"
-// })
-// .then((docRef) => {
-//     console.log("Document written with ID: ", docRef.id);
-// })
-// .catch((error) => {
-//     console.error("Error adding document: ", error);
-// });
-let bookings = [];
+// Initialize court status
 let courtStatus = new Array(8).fill("Available");
+let timers = {}; // To store timer intervals for each court
 
 // Function to initialize court status table
-
 function initializeStatusTable() {
     let statusTable = document.getElementById("statusTable");
     let statusRows = "";
     for (let i = 0; i < courtStatus.length; i++) {
-        statusRows += `<tr><td>${i + 1}</td><td>${courtStatus[i]}</td><td id="elapsedTime-${i + 1}">0 mins</td></tr>`;
+        statusRows += `<tr id="statusRow-${i + 1}"><td>${i + 1}</td><td>${courtStatus[i]}</td><td id="remainingTime-${i + 1}">45:00 mins</td></tr>`;
     }
-    statusTable.innerHTML = `<tr><th>Court Number</th><th>Status</th><th>Elapsed Time</th></tr>` + statusRows;
+    statusTable.innerHTML = `<tr><th>Court Number</th><th>Status</th><th>Time Remaining</th></tr>` + statusRows;
 }
+
+// Function to populate bookings table from Firestore
 function populateBookingsTable() {
-    let bookingTable = document.getElementById("bookingTable");
+    let bookingTable = document.getElementById("bookingTable").getElementsByTagName('tbody')[0];
     bookingTable.innerHTML = ""; // Clear existing table content
-    
-    // Add table headers
-    bookingTable.innerHTML = `<tr><th>Check-in Date</th><th>Name</th><th>Court Number</th><th>Check-in Time</th><th>Check-out Time</th><th>Total Time</th><th>Action</th></tr>`;
-    
-    // Fetch bookings data from Firestore and populate the table
-    db.collection("bookings").get().then((querySnapshot) => {
+
+    // Fetch bookings data from Firestore and populate the table, sorted by timestamp
+    db.collection("bookings").orderBy("timestamp").get().then((querySnapshot) => {
         querySnapshot.forEach((doc) => {
             let booking = doc.data();
             let checkInTime = new Date(booking.checkInTime).toLocaleTimeString(); // Format check-in time
-            let row = `<tr><td>${booking.checkInDate}</td><td>${booking.name}</td><td>${booking.courtNumber}</td><td>${checkInTime}</td><td id="checkout-${doc.id}"></td><td id="totalTime-${doc.id}"></td><td><button onclick="checkOut('${doc.id}', ${booking.courtNumber}, '${booking.name}')">Check Out</button></td></tr>`;
+            let checkOutTime = booking.checkOutTime ? new Date(booking.checkOutTime).toLocaleTimeString() : ""; // Format check-out time
+            let row = `<tr><td>${booking.checkInDate}</td><td>${booking.name}</td><td>${booking.courtNumber}</td><td>${checkInTime}</td><td id="checkout-${doc.id}">${checkOutTime}</td></tr>`;
             bookingTable.innerHTML += row;
+            // Update court status array
+            if (booking.status === "Occupied") {
+                courtStatus[booking.courtNumber - 1] = booking.status;
+                startTimer(booking.courtNumber, new Date(booking.checkInTime), doc.id); // Start timer for court
+            }
         });
+        // Update court status table after fetching data
+        updateCourtStatus();
     }).catch((error) => {
         console.error("Error getting bookings: ", error);
     });
 }
 
-// Function to start timer for a court
-function startTimer(courtNumber) {
-    let startTime = new Date().getTime();
-
-    // Update elapsed time every second
-    let timerInterval = setInterval(() => {
-        let currentTime = new Date().getTime();
-        let elapsedTime = Math.floor((currentTime - startTime) / 1000 / 60); // Elapsed time in minutes
-        updateElapsedTime(courtNumber, elapsedTime);
-    }, 1000);
-
-    return timerInterval;
+// Function to update court status table
+function updateCourtStatus() {
+    for (let i = 0; i < courtStatus.length; i++) {
+        let statusRow = document.getElementById(`statusRow-${i + 1}`);
+        if (statusRow) {
+            statusRow.cells[1].textContent = courtStatus[i];
+        }
+    }
 }
 
+// Function to start timer for a court
+function startTimer(courtNumber, startTime, bookingId) {
+    let endTime = new Date(startTime.getTime() + 45 * 60000); // 45 minutes from start time
 
+    // Clear any existing timer for the court
+    if (timers[courtNumber]) {
+        clearInterval(timers[courtNumber]);
+    }
 
-window.onload = function() {
-    // Get the "Check In" button element
-    const checkInButton = document.getElementById("checkInButton");
+    // Update remaining time every second
+    timers[courtNumber] = setInterval(() => {
+        let currentTime = new Date().getTime();
+        let remainingTimeMs = Math.max(0, endTime - currentTime); // Remaining time in milliseconds
+        let remainingMinutes = Math.floor(remainingTimeMs / 60000); // Remaining minutes
+        let remainingSeconds = Math.floor((remainingTimeMs % 60000) / 1000); // Remaining seconds
+        updateRemainingTime(courtNumber, remainingMinutes, remainingSeconds);
 
-    initializeStatusTable();
+        if (remainingTimeMs <= 0) {
+            clearInterval(timers[courtNumber]);
+            timers[courtNumber] = null;
+            courtStatus[courtNumber - 1] = "Available"; // Set court status to available
+            updateCourtStatus();
 
-    // Add an event listener to the "Check In" button
-    checkInButton.addEventListener("click", checkIn);
-};
+            // Update Firestore to set court status to available and check-out time
+            let checkOutTime = new Date().toISOString();
+            db.collection("bookings").doc(bookingId).update({
+                status: "Available",
+                checkOutTime: checkOutTime
+            }).then(() => {
+                // Update check-out time in bookings table
+                document.getElementById(`checkout-${bookingId}`).textContent = new Date(checkOutTime).toLocaleTimeString();
+            }).catch((error) => {
+                console.error("Error updating court status: ", error);
+            });
+        }
+    }, 1000);
+}
 
+// Function to update remaining time in court status table
+function updateRemainingTime(courtNumber, remainingMinutes, remainingSeconds) {
+    const remainingTimeCell = document.getElementById(`remainingTime-${courtNumber}`);
+    if (remainingTimeCell) {
+        remainingTimeCell.textContent = `${remainingMinutes}:${remainingSeconds.toString().padStart(2, '0')} mins`;
+    }
+}
+
+// Check-in function
 function checkIn() {
-    // Retrieve input values
     let name = document.getElementById("name").value;
     let courtNumber = parseInt(document.getElementById("courtNumber").value);
-
-    // Get current date and time
     let checkInTime = new Date().toISOString();
     let checkInDate = new Date().toLocaleDateString();
+
+    if (name === null || name === "") {
+        alert("Name field cannot be blank.");
+        return;
+    }
 
     // Check court status in the database
     db.collection("bookings")
@@ -120,7 +148,8 @@ function checkIn() {
                     checkInTime: checkInTime,
                     checkInDate: checkInDate,
                     checkOutTime: "", // Initialize check-out time as empty
-                    status: "Occupied" // Set status to "Occupied"
+                    status: "Occupied", // Set status to "Occupied"
+                    timestamp: firebase.firestore.FieldValue.serverTimestamp() // Add timestamp field
                 };
 
                 // Write data to Firestore
@@ -137,6 +166,9 @@ function checkIn() {
                         // Populate bookings table
                         populateBookingsTable();
 
+                        // Start timer for court
+                        startTimer(courtNumber, new Date(checkInTime), docRef.id);
+
                         // Reset the form
                         document.getElementById("bookingForm").reset();
                     })
@@ -145,7 +177,7 @@ function checkIn() {
                     });
             } else {
                 // Court is occupied, show an alert
-                alert("Court " + courtNumber + " is already occupied.");
+                alert("Court " + courtNumber + " is already occupied. Please choose another court.");
             }
         })
         .catch((error) => {
@@ -153,65 +185,8 @@ function checkIn() {
         });
 }
 
-
-function checkOut(bookingId, courtNumber, name, timerInterval) {
-    // Find the index of the booking
-    let index = bookings.findIndex(booking => booking.id === bookingId);
-    if (index !== -1) {
-        let checkOutTime = new Date().toISOString(); // Use toISOString() to get standard format
-        console.log("Check-out time:", checkOutTime); // Log check-out time
-        console.log("Check-in time:", bookings[index].checkInTime); // Log check-out time
-
-        courtStatus[courtNumber - 1] = "Available";
-        bookings[index].checkOutTime = checkOutTime;
-        document.getElementById(`checkout-${bookingId}`).textContent = new Date(checkOutTime).toLocaleTimeString(); // Display local time in HTML
-        let statusRow = document.getElementById(`statusRow-${courtNumber}`);
-        if (statusRow) {
-            statusRow.cells[1].textContent = "Available";
-            updateElapsedTime(courtNumber, 0); // Reset elapsed time
-        }
-        clearInterval(timerInterval); // Stop timer
-
-        // Calculate total time
-        let totalTime = calculateTotalTime(bookings[index].checkInTime, checkOutTime);
-        if (totalTime !== null) { // Ensure totalTime is not null
-            document.getElementById(`totalTime-${bookingId}`).textContent = totalTime + " mins";
-        } else {
-            document.getElementById(`totalTime-${bookingId}`).textContent = "N/A";
-        }
-    } else {
-        alert("Booking not found.");
-    }
-}
-// Function to update court status table
-function updateCourtStatus() {
-    let statusTable = document.getElementById("statusTable");
-    let statusRows = "";
-    for (let i = 0; i < courtStatus.length; i++) {
-        statusRows += `<tr><td>${i + 1}</td><td>${courtStatus[i]}</td><td id="elapsedTime-${i + 1}">0 mins</td></tr>`;
-    }
-    statusTable.innerHTML = `<tr><th>Court Number</th><th>Status</th><th>Elapsed Time</th></tr>` + statusRows;
-}
-
-
-// Function to update elapsed time in court status table
-function updateElapsedTime(courtNumber, elapsedTime) {
-    const elapsedTimeCell = document.getElementById(`elapsedTime-${courtNumber}`);
-    if (elapsedTimeCell) {
-        elapsedTimeCell.textContent = elapsedTime + " mins";
-    }
-}
-
-// Function to calculate total time in minutes
-function calculateTotalTime(checkInTime, checkOutTime) {
-    const startTime = new Date(checkInTime).getTime();
-    const endTime = new Date(checkOutTime).getTime();
-    
-    if (!isNaN(startTime) && !isNaN(endTime)) { // Check if startTime and endTime are valid
-        const totalTime = Math.round((endTime - startTime) / 1000 / 60); // Total time in minutes
-        return totalTime;
-    } else {
-        console.error("Invalid timestamps:", checkInTime, checkOutTime);
-        return null; // Return null if either startTime or endTime is invalid
-    }
-}
+// Populate tables when the page loads
+window.onload = function() {
+    initializeStatusTable();
+    populateBookingsTable();
+};
