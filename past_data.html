@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Tennis Court Booking System</title>
+    <title>Bookings for Specific Day</title>
     <style>
         table {
             border-collapse: collapse;
@@ -22,30 +22,16 @@
             background-color: #f2f2f2;
         }
     </style>
-    <!-- Firebase SDKs -->
     <script src="https://www.gstatic.com/firebasejs/8.6.8/firebase-app.js"></script>
     <script src="https://www.gstatic.com/firebasejs/8.6.8/firebase-firestore.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.17.0/xlsx.full.min.js"></script>
+
 </head>
 
 <body>
-    <h2>Tennis Court Booking System</h2>
-    <h3>Select Date</h3>
-    <select id="dateDropdown" onchange="loadBookingsForSelectedDate()">
-        <option value="" selected disabled>Select a date</option>
-    </select>
+    <button onclick="goBack()">Back</button>
 
-
-    <h3>Booking Form</h3>
-    <form id="bookingForm">
-        <label for="name">Name:</label>
-        <input type="text" id="name" required><br><br>
-        <label for="courtNumber">Court Number:</label>
-        <input type="number" id="courtNumber" min="1" max="8" value="1"><br><br>
-        <button type="button" onclick="checkIn()">Check In</button>
-    </form>
-
-    <h3>Current Bookings</h3>
+    <h2>Bookings for <span id="selectedDate"></span></h2>
     <div id="tableDiv">
         <table id="bookingTable">
             <thead>
@@ -64,25 +50,9 @@
     </div>
     <button onclick="createPDF()">Export to PDF</button>
     <button onclick="createSpreadsheet()">Export to Excel</button>
-    <h2>Court Status</h2>
-    <table id="statusTable">
-        <thead>
-            <tr>
-                <th>Court Number</th>
-                <th>Status</th>
-                <th>Time Remaining</th>
-            </tr>
-        </thead>
-        <tbody>
-            <!-- Dynamic content will be populated here -->
-        </tbody>
-    </table>
-
-
-
     <script type='text/javascript' src="config.js"></script>
 
-    <script src="tennis_courts.js"></script>
+    <script src="past_data.js"></script>
 </body>
 
 </html>

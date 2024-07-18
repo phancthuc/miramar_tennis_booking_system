@@ -1,17 +1,5 @@
-// const sqlite3 = require('sqlite3').verbose();
-// let sql;
-// const db = new sqlite3.Database('./tennis_courts.db', sqlite3.OPEN_READWRITE, (err)=>{
-//     if(err) return console.error(err.message);
-
-// });
-
-// sql = `CREATE TABLE bookings(id INTEGER PRIMARY KEY, name, check_in_time, check_out_time)`;
-// db.run(sql);
-
-var mykey = config.MY_KEY;
-
 const firebaseConfig = {
-    apiKey: mykey,
+    apiKey: config.MY_KEY,
     authDomain: "tennis-court-bookings-8adc0.firebaseapp.com",
     databaseURL: "https://tennis-court-bookings-8adc0-default-rtdb.firebaseio.com",
     projectId: "tennis-court-bookings-8adc0",
@@ -21,9 +9,8 @@ const firebaseConfig = {
     measurementId: "G-DPJXRJ3XKK"
 };
 
-
 // Initialize Firebase
-const app = firebase.initializeApp(firebaseConfig);
+firebase.initializeApp(firebaseConfig);
 const db = firebase.firestore();
 
 // Initialize court status
@@ -35,18 +22,26 @@ function initializeStatusTable() {
     let statusTable = document.getElementById("statusTable");
     let statusRows = "";
     for (let i = 0; i < courtStatus.length; i++) {
-        statusRows += `<tr id="statusRow-${i + 1}"><td>${i + 1}</td><td>${courtStatus[i]}</td><td id="remainingTime-${i + 1}">45:00 mins</td></tr>`;
+        statusRows += `<tr id="statusRow-${i + 1}"><td>${i + 1}</td><td>${courtStatus[i]}</td><td id="remainingTime-${i + 1}">45:00</td></tr>`;
     }
     statusTable.innerHTML = `<tr><th>Court Number</th><th>Status</th><th>Time Remaining</th></tr>` + statusRows;
 }
 
 // Function to populate bookings table from Firestore
-function populateBookingsTable() {
+function populateBookingsTable(dateFilter = new Date().toLocaleDateString()) {
     let bookingTable = document.getElementById("bookingTable").getElementsByTagName('tbody')[0];
     bookingTable.innerHTML = ""; // Clear existing table content
 
-    // Fetch bookings data from Firestore and populate the table, sorted by timestamp
-    db.collection("bookings").orderBy("timestamp").get().then((querySnapshot) => {
+    let query = db.collection("bookings");
+    if (dateFilter) {
+        query = query.where("checkInDate", "==", dateFilter);
+    }
+    query.orderBy("timestamp").get().then((querySnapshot) => {
+        if (querySnapshot.empty) {
+            bookingTable.innerHTML = "<tr><td colspan='6'>No bookings for this date</td></tr>";
+            return;
+        }
+
         querySnapshot.forEach((doc) => {
             let booking = doc.data();
             let checkInTime = new Date(booking.checkInTime).toLocaleTimeString(); // Format check-in time
@@ -118,7 +113,7 @@ function startTimer(courtNumber, startTime, bookingId) {
 function updateRemainingTime(courtNumber, remainingMinutes, remainingSeconds) {
     const remainingTimeCell = document.getElementById(`remainingTime-${courtNumber}`);
     if (remainingTimeCell) {
-        remainingTimeCell.textContent = `${remainingMinutes}:${remainingSeconds.toString().padStart(2, '0')} mins`;
+        remainingTimeCell.textContent = `${remainingMinutes}:${remainingSeconds.toString().padStart(2, '0')}`;
     }
 }
 
@@ -185,8 +180,76 @@ function checkIn() {
         });
 }
 
-// Populate tables when the page loads
-window.onload = function() {
+// Function to load dates into the dropdown
+function loadDates() {
+    let dateDropdown = document.getElementById("dateDropdown");
+
+    db.collection("bookings").orderBy("checkInDate").get().then((querySnapshot) => {
+        let dates = new Set(); // Using a set to store unique dates
+
+        querySnapshot.forEach((doc) => {
+            let booking = doc.data();
+            dates.add(booking.checkInDate);
+        });
+
+        // Populate the dropdown with unique dates
+        dates.forEach(date => {
+            let option = document.createElement("option");
+            option.value = date;
+            option.textContent = date;
+            dateDropdown.appendChild(option);
+        });
+    }).catch((error) => {
+        console.error("Error loading dates: ", error);
+    });
+}
+
+// Function to load bookings for the selected date
+function loadBookingsForSelectedDate() {
+    let selectedDate = document.getElementById("dateDropdown").value;
+    if (selectedDate) {
+        window.location.href = `past_data.html?date=${selectedDate}`;
+    } else {
+        populateBookingsTable(); // Load current date bookings
+    }
+}
+
+// Function to create PDF
+function createPDF() {
+    var sTable = document.getElementById('tableDiv').innerHTML;
+
+    var style = "<style>";
+    style = style + "table {width: 100%;font: 17px Calibri;}";
+    style = style + "table, th, td {border: solid 1px #DDD; border-collapse: collapse;}";
+    style = style + "padding: 2px 3px;text-align: center;}";
+    style = style + "</style>";
+
+    // CREATE A WINDOW OBJECT.
+    var win = window.open('', '', 'height=700,width=700');
+
+    win.document.write('<html><head>');
+    win.document.write('<title>Profile</title>');   // <title> FOR PDF HEADER.
+    win.document.write(style);          // ADD STYLE INSIDE THE HEAD TAG.
+    win.document.write('</head>');
+    win.document.write('<body>');
+    win.document.write(sTable);         // THE TABLE CONTENTS INSIDE THE BODY TAG.
+    win.document.write('</body></html>');
+
+    win.document.close();   // CLOSE THE CURRENT WINDOW.
+
+    win.print();    // PRINT THE CONTENTS.
+}
+
+// Function to create spreadsheet
+function createSpreadsheet() {
+    let bookingTable = document.getElementById("bookingTable");
+    let wb = XLSX.utils.table_to_book(bookingTable, { sheet: "Bookings" });
+    XLSX.writeFile(wb, "Bookings.xlsx");
+}
+
+// Populate tables and load dates when the page loads
+window.onload = function () {
     initializeStatusTable();
     populateBookingsTable();
+    loadDates();
 };
